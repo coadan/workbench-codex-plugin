@@ -1,0 +1,17 @@
+{
+  "mode": "local",
+  "hooks": {
+    "check": [
+      {
+        "name": "test",
+        "command": [
+          "node",
+          "--test",
+          "tests/plugin.test.mjs",
+          "tests/portable.test.mjs",
+          "tests/policy.test.mjs"
+        ]
+      }
+    ]
+  }
+}
