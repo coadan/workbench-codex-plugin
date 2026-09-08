@@ -1,0 +1,43 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/workbench.mjs\" context",
+            "timeout": 20,
+            "statusMessage": "Refreshing Workbench main context",
+            "additionalContextLimit": 2000
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/workbench.mjs\" context",
+            "timeout": 20,
+            "statusMessage": "Refreshing Workbench main context",
+            "additionalContextLimit": 2000
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/workbench.mjs\" context",
+            "timeout": 20,
+            "statusMessage": "Refreshing Workbench main context",
+            "additionalContextLimit": 2000
+          }
+        ]
+      }
+    ]
+  }
+}

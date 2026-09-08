@@ -9,7 +9,8 @@
           "--test",
           "tests/plugin.test.mjs",
           "tests/portable.test.mjs",
-          "tests/policy.test.mjs"
+          "tests/policy.test.mjs",
+          "tests/lifecycle.test.mjs"
         ]
       }
     ]
