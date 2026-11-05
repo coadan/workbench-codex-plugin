@@ -1,7 +1,12 @@
-# Workbench plugin development
+# Workbench for Codex
 
-This repository owns the portable task engine, Codex hook integration, workflow skill, and distribution metadata. Repository-specific product checks belong in the consuming repository.
+Use local Workbench delivery. Publish commits or releases only when the user asks.
+See [contribution guidance](CONTRIBUTING.md) and [the Workbench skill](skills/workbench/SKILL.md).
 
-Before work, inspect Git status, run `node scripts/workbench.mjs sync`, and read the recent commits. Follow [the Workbench skill](skills/workbench/SKILL.md). This repository uses local delivery; create task checkouts beside their plans under `.workbench/tasks/<name>/repo` and land verified work into local `main`.
-
-Run the checks registered in `.workbench.json`. Tests must use isolated local repositories and preserve the no-network contract of local mode. Keep hook commands as argument arrays; repository hooks own their additional tool requirements. Update the skill and README when changing the public configuration or CLI contract. Report checks and the landed commit.
+- This repository owns the task engine, native Codex integration, reviewer runner, workflow skill and manifests. Product checks belong in the consuming repository.
+- Before work, inspect Git status, run `node scripts/workbench.mjs sync` and read recent commits. Adopt an app-created linked worktree, or start one in `.codex/worktrees/<name>`; land verified work into local `main`.
+- The engine has no dependencies and needs Node.js 20+ and Git. Keep it one file. Hook and check commands are argument arrays run without a shell.
+- Tests use isolated local repositories and `tests/fake-gh.mjs`. Local mode never touches the network. Register every test file in `.workbench.json`.
+- Update the skill and README when configuration, CLI or delivery changes. Keep upstream provenance in `upstream.json` current when porting behavior.
+- Keep source, examples, tests and commits generic. Personal and client configuration belongs outside this repository.
+- Report checks and the landed commit.

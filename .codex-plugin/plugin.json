@@ -1,7 +1,7 @@
 {
-  "name": "workbench-codex-plugin",
-  "version": "0.1.0",
-  "description": "Portable local task coordination, repository hooks, and Git delivery workflows for Codex.",
+  "name": "workbench",
+  "version": "0.5.0",
+  "description": "Scoped worktree tasks, exact-tree checks and reviews, independent reviewers and policy-based delivery for Codex.",
   "author": {
     "name": "coadan",
     "url": "https://github.com/coadan"
@@ -9,9 +9,9 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Workbench",
-    "shortDescription": "Plan, verify, and land local development tasks.",
-    "longDescription": "Plans and verifies isolated development tasks, refreshes Git context, and supports local-only, direct-push, and pull-request delivery. Repositories register their own setup and verification commands. Requires Node.js and Git.",
-    "developerName": "Seidr",
+    "shortDescription": "Plan, check, review and deliver scoped Git tasks.",
+    "longDescription": "Plans, checks, tests and reviews isolated tasks using the Workbench engine. Supports independent task and QA reviewers and local, direct-push or pull-request delivery.",
+    "developerName": "coadan",
     "category": "Productivity",
     "capabilities": [],
     "defaultPrompt": [

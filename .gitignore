@@ -1,1 +1,6 @@
-/.workbench/
+node_modules/
+.workbench/
+.codex/worktrees/
+.DS_Store
+.env
+.env.*

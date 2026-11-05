@@ -7,8 +7,8 @@
             "type": "command",
             "command": "node \"${PLUGIN_ROOT}/scripts/workbench.mjs\" context",
             "timeout": 20,
-            "statusMessage": "Refreshing Workbench main context",
-            "additionalContextLimit": 2000
+            "statusMessage": "Reading Workbench task context",
+            "additionalContextLimit": 6000
           }
         ]
       }
@@ -18,10 +18,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/workbench.mjs\" context",
+            "command": "node \"${PLUGIN_ROOT}/scripts/workbench.mjs\" context --hook UserPromptSubmit",
             "timeout": 20,
-            "statusMessage": "Refreshing Workbench main context",
-            "additionalContextLimit": 2000
+            "statusMessage": "Reading Workbench task context",
+            "additionalContextLimit": 6000
           }
         ]
       }
@@ -31,10 +31,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/workbench.mjs\" context",
+            "command": "node \"${PLUGIN_ROOT}/scripts/workbench.mjs\" context --hook SubagentStart",
             "timeout": 20,
-            "statusMessage": "Refreshing Workbench main context",
-            "additionalContextLimit": 2000
+            "statusMessage": "Reading Workbench task context",
+            "additionalContextLimit": 6000
           }
         ]
       }

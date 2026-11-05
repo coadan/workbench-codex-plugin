@@ -7,10 +7,11 @@
         "command": [
           "node",
           "--test",
-          "tests/plugin.test.mjs",
-          "tests/portable.test.mjs",
-          "tests/policy.test.mjs",
-          "tests/lifecycle.test.mjs"
+          "tests/app-worktrees.test.mjs",
+          "tests/claude-review.test.mjs",
+          "tests/codex.test.mjs",
+          "tests/links.test.mjs",
+          "tests/workbench.test.mjs"
         ]
       }
     ]
