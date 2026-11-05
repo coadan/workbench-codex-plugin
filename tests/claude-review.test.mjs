@@ -63,10 +63,10 @@ process.stdout.write(${JSON.stringify(JSON.stringify(answer))});
   };
   const call = () => JSON.parse(fs.readFileSync(path.join(dir, "call.json"), "utf8"));
   const out = () => JSON.parse(fs.readFileSync(env.WORKBENCH_REVIEW_OUT, "utf8"));
-  return { wt, env, call, out };
+  return { dir, wt, env, call, out };
 }
 
-const ok = { type: "result", is_error: false, structured_output: { verdict: "fail", summary: "s", findings: [{ id: "F1", severity: "blocking", escalate: false, title: "t", detail: "d" }] } };
+const ok = { type: "result", is_error: false, structured_output: { verdict: "fail", summary: "s", findings: [{ id: "F1", severity: "blocking", escalate: false, title: "t", detail: "d", evidence: "a.txt:1" }] } };
 
 test("the blind task reviewer sees the objective, acceptance and diff, never the steps, QA notes or review", () => {
   const s = setup(ok);
@@ -126,4 +126,114 @@ test("--add-dir lets the reviewer read named directories, and --include adds fil
   assert.match(input, /branches\.txt[\s\S]*feat\/x has 3 changed files/);
   assert.match(run("--add-dir", path.join(extra, "nope")).stderr, /--add-dir .*nope.* is not a directory/);
   assert.match(run("--include", path.join(extra, "nope.txt")).stderr, /--include .*nope\.txt.* is not a file/);
+});
+
+const passed = { verdict: "pass", summary: "Checked.", findings: [] };
+function fallback(s, answer = passed, status = 0) {
+  const binary = path.join(s.dir, "codex.cjs");
+  const record = path.join(s.dir, "codex-call.json");
+  fs.writeFileSync(binary, `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+const input = fs.readFileSync(0, "utf8");
+fs.writeFileSync(${JSON.stringify(record)}, JSON.stringify({args, input, cwd: process.cwd(), schema: JSON.parse(fs.readFileSync(args[args.indexOf("--output-schema") + 1], "utf8"))}));
+fs.writeFileSync(args[args.indexOf("--output-last-message") + 1], ${JSON.stringify(JSON.stringify(answer))});
+process.exit(${status});
+`);
+  fs.chmodSync(binary, 0o755);
+  s.env.WORKBENCH_CODEX = binary;
+  s.env.WORKBENCH_FALLBACK_MODEL = "gpt-6.1-sol";
+  s.env.WORKBENCH_FALLBACK_EFFORT = "xhigh";
+  return { called: () => fs.existsSync(record), call: () => JSON.parse(fs.readFileSync(record, "utf8")) };
+}
+const run = (s, ...args) => spawnSync("node", [runner, "--prompt", path.join(prompts, "task.md"), ...args], { cwd: s.wt, env: s.env, encoding: "utf8" });
+
+test("quota failure uses the opt-in exact model/effort with the same blind prompt and schema", () => {
+  const s = setup({ type: "result", is_error: true, result: "You've hit your usage limit" });
+  const f = fallback(s);
+  const r = run(s);
+  assert.equal(r.status, 0, r.stderr);
+  const c = f.call();
+  assert.equal(c.input, s.call().input);
+  assert.deepEqual(c.schema, JSON.parse(s.call().args[s.call().args.indexOf("--json-schema") + 1]));
+  assert.equal(c.args[c.args.indexOf("--model") + 1], "gpt-6.1-sol");
+  assert.ok(c.args.includes('model_reasoning_effort="xhigh"'));
+  for (const arg of ["--ignore-user-config", "--ignore-rules", "--ephemeral", 'features.hooks=false', 'features.plugins=false', 'features.memories=false']) assert.ok(c.args.includes(arg), arg);
+  assert.equal(c.args.includes("--add-dir"), false);
+  assert.equal(c.args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
+  assert.doesNotMatch(c.input, /my private reasoning step|SECRET-AUTHOR-NOTE/);
+  assert.deepEqual(s.out(), passed);
+  assert.deepEqual(JSON.parse(fs.readFileSync(`${s.env.WORKBENCH_REVIEW_OUT}.runner.json`, "utf8")), {backend: "codex", model: "gpt-6.1-sol", effort: "xhigh", fallbackReason: "usage-limit"});
+});
+
+test("missing Claude executable can fall back, while valid failing reviews never do", () => {
+  const missing = setup(ok); const f = fallback(missing);
+  missing.env.WORKBENCH_CLAUDE = path.join(missing.dir, "missing");
+  assert.equal(run(missing).status, 0);
+  assert.equal(f.called(), true);
+  const failing = setup(ok); const unused = fallback(failing);
+  assert.equal(run(failing).status, 0);
+  assert.equal(unused.called(), false);
+  assert.equal(failing.out().verdict, "fail");
+  assert.equal(JSON.parse(fs.readFileSync(`${failing.env.WORKBENCH_REVIEW_OUT}.runner.json`, "utf8")).backend, "claude");
+});
+
+test("malformed structured output and arbitrary Claude errors fail closed without fallback", () => {
+  for (const answer of [
+    { is_error: false, structured_output: { verdict: "pass" } },
+    { is_error: true, result: "unrelated internal exception" },
+    { is_error: false, result: "rate limited" },
+    { is_error: true, result: "usage limit", structured_output: { verdict: "pass" } },
+  ]) {
+    const s = setup(answer); const f = fallback(s);
+    assert.notEqual(run(s).status, 0);
+    assert.equal(f.called(), false);
+    assert.equal(fs.existsSync(s.env.WORKBENCH_REVIEW_OUT), false);
+  }
+});
+
+test("malformed JSON and interrupted Claude do not trigger fallback or leave stale results", () => {
+  for (const body of ['process.stdout.write("not JSON");', 'process.kill(process.pid, "SIGTERM");']) {
+    const s = setup(ok); const f = fallback(s);
+    fs.writeFileSync(path.join(s.dir, "fake-claude.cjs"), body);
+    fs.writeFileSync(s.env.WORKBENCH_REVIEW_OUT, JSON.stringify(passed));
+    fs.writeFileSync(`${s.env.WORKBENCH_REVIEW_OUT}.runner.json`, "{}");
+    assert.notEqual(run(s).status, 0);
+    assert.equal(f.called(), false);
+    assert.equal(fs.existsSync(s.env.WORKBENCH_REVIEW_OUT), false);
+    assert.equal(fs.existsSync(`${s.env.WORKBENCH_REVIEW_OUT}.runner.json`), false);
+  }
+});
+
+test("recognized auth/service unavailability falls back, and unavailable fallback remains a failure", () => {
+  for (const message of ["Not logged in. Please log in.", "API Error: 503 service unavailable"]) {
+    const s = setup({ is_error: true, result: message }); const f = fallback(s);
+    assert.equal(run(s).status, 0);
+    assert.equal(f.called(), true);
+  }
+  for (const [answer, status] of [[passed, 1], [{ verdict: "pass" }, 0]]) {
+    const s = setup({ is_error: true, result: "rate limited" }); fallback(s, answer, status);
+    assert.notEqual(run(s).status, 0);
+    assert.equal(fs.existsSync(s.env.WORKBENCH_REVIEW_OUT), false);
+  }
+});
+
+// Shell and CLI wrappers can encode interruption as an exit code rather than r.signal.
+test("signal-style exit statuses never recover through a passing fallback", () => {
+  for (const status of [130, 143]) {
+    const s = setup({ is_error: true, result: "rate limited" }); const f = fallback(s);
+    fs.appendFileSync(path.join(s.dir, "fake-claude.cjs"), `\nprocess.exit(${status});\n`);
+    assert.notEqual(run(s).status, 0);
+    assert.equal(f.called(), false);
+    assert.equal(fs.existsSync(s.env.WORKBENCH_REVIEW_OUT), false);
+  }
+});
+
+test("a valid failing fallback remains a failing review with Codex provenance", () => {
+  const s = setup({ is_error: true, result: "rate limited" });
+  fallback(s, ok.structured_output);
+  const r = run(s);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(s.out().verdict, "fail");
+  assert.equal(JSON.parse(fs.readFileSync(`${s.env.WORKBENCH_REVIEW_OUT}.runner.json`, "utf8")).backend, "codex");
 });

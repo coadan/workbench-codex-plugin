@@ -1,6 +1,6 @@
 {
   "name": "workbench",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Scoped worktree tasks, exact-tree checks and reviews, independent reviewers and policy-based delivery for Codex.",
   "author": {
     "name": "coadan",

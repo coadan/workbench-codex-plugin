@@ -11,6 +11,7 @@
           "tests/claude-review.test.mjs",
           "tests/codex.test.mjs",
           "tests/links.test.mjs",
+          "tests/codex-review.test.mjs",
           "tests/workbench.test.mjs"
         ]
       }

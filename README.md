@@ -193,6 +193,10 @@ The result is JSON: `{ "verdict": "pass" | "fail", "summary": "…", "findings":
 - `reviewers/task.md`: a blind technical review of the change against its acceptance: correctness, tests, scope and safety.
 - `reviewers/qa.md`: a check that the author did QA and recorded evidence for it. It does no QA itself; each gap is a blocking finding that tells the implementer what to try and record.
 
+**Optional fallback.** Claude remains the primary reviewer. Set `WORKBENCH_FALLBACK_MODEL` and `WORKBENCH_FALLBACK_EFFORT` (or `--fallback-model` and `--fallback-effort`) to permit a Codex review after a recognized usage-limit, authentication, service or executable-availability failure. For example, `WORKBENCH_FALLBACK_MODEL=gpt-6.1-sol WORKBENCH_FALLBACK_EFFORT=xhigh`. Valid failing verdicts, malformed responses, interruptions and unrelated errors never trigger fallback. The fallback must complete and satisfy the same schema; an error blocks delivery. `WORKBENCH_CODEX` optionally selects the executable.
+
+Both runners receive the same blind input. Codex ignores user config and rules, disables hooks, plugins, memory, skills instructions and web access, and uses a named read-only profile restricted to source roots plus minimal runtime paths. The author's task directory and personal context paths are denied. Generic global AGENTS guidance can still appear in Codex startup context; the review prompt overrides its bootstrap instructions and the filesystem prevents reading that extra context. Managed policies remain in force. Explicit `--add-dir` inputs become read-only source roots, never writable roots. The runner writes provenance to `WORKBENCH_REVIEW_OUT.runner.json` beside the unchanged structured result, recording backend, model, effort and any fallback reason.
+
 A repository's own reviewers (its architecture rules, its cross-repository coverage) keep their prompts in the repository, or in `.workbench/` with a `.git/workbench.json` policy to keep them out of history.
 
 ## Pull request descriptions: pr.md

@@ -84,3 +84,7 @@ After the forge merges a PR, run `land --merged <sha>` to verify the pushed stat
 ## Hooks
 
 At session start, resume and compaction, and at subagent start, the plugin prints a short context for configured repositories: the mode, the base and the active tasks. It prints nothing in other repositories.
+
+## Reviewer availability
+
+Claude reviews stay primary. A repository can opt into the [runner fallback](../../README.md#reviewers) with `WORKBENCH_FALLBACK_MODEL` and `WORKBENCH_FALLBACK_EFFORT`. A valid failed review is a finding to resolve; fallback handles recognized runner unavailability only. Keep the same role, permitted evidence and schema, inspect the `.runner.json` provenance beside each result, and rerun the affected gate after fixing findings.
