@@ -1,12 +1,13 @@
 {
   "repository": "https://github.com/coadan/workbench-claude-plugin",
-  "commit": "75dc4766e1c844a2b49ab2702161bb6666a3943b",
-  "version": "0.5.0",
+  "commit": "d3f70e16804b2cf1af884bf64f75e1e9b3ad51bb",
+  "version": "0.5.1",
   "adaptations": [
     "Codex plugin manifest and marketplace",
     "Codex lifecycle hook root and event output",
     "codex/ fallback branches and .codex/worktrees paths",
     "Codex app PR command and attachment",
-    "Legacy Codex task metadata and package.json configuration fallback"
+    "Legacy Codex task metadata and package.json configuration fallback",
+    "claude-review.mjs refuses the Codex-only --primary codex of 0.5.1"
   ]
 }

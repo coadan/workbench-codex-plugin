@@ -1,72 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { fakeCodex, ok, passed, prompts, setup } from "./review-fixture.mjs";
 
+// claude-review.mjs: the Claude-first contract, with Codex only as an opt-in fallback.
 const runner = fileURLToPath(new URL("../scripts/claude-review.mjs", import.meta.url));
-const prompts = fileURLToPath(new URL("../reviewers/", import.meta.url));
-const git = (cwd, ...a) => execFileSync("git", a, { cwd, encoding: "utf8" }).trim();
-
-// A worktree with one change, a task directory with plan.md and qa.md, and a fake claude that records its
-// arguments and prompt and answers with `answer`.
-function setup(answer) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wb-cr-")));
-  const wt = path.join(dir, "wt");
-  fs.mkdirSync(wt);
-  git(wt, "init", "-q", "-b", "main");
-  git(wt, "config", "user.email", "t@example.com");
-  git(wt, "config", "user.name", "t");
-  fs.writeFileSync(path.join(wt, "a.txt"), "a\n");
-  git(wt, "add", ".");
-  git(wt, "commit", "-qm", "init");
-  const base = git(wt, "rev-parse", "HEAD");
-  fs.writeFileSync(path.join(wt, "a.txt"), "a changed\n");
-  fs.writeFileSync(path.join(wt, "new.txt"), "brand new\n");
-  git(wt, "add", "-A");
-  const tree = git(wt, "write-tree");
-  git(wt, "reset", "-q");
-  const task = path.join(dir, "task");
-  fs.mkdirSync(task);
-  fs.writeFileSync(path.join(task, "plan.md"), "---\ntype: feat\nobjective: change a\nscope:\n  - .\n---\n# t\n\n## Steps\n\n- my private reasoning step\n\n## Acceptance\n\n- [ ] a.txt says changed\n");
-  fs.writeFileSync(path.join(task, "qa.md"), "Tried an empty a.txt: the check failed as it should.\n");
-  fs.writeFileSync(path.join(task, "review.md"), "# Review\n\nAuthor's own reasoning: SECRET-AUTHOR-NOTE\n");
-  fs.writeFileSync(path.join(task, "changed"), "a.txt\nnew.txt\n");
-  fs.writeFileSync(path.join(task, "receipt.json"), JSON.stringify({ passed: true, checks: [{ name: "test", ok: true }] }));
-  const fake = path.join(dir, "fake-claude.mjs");
-  fs.writeFileSync(fake, `#!/usr/bin/env node
-const fs = require("fs");
-const input = fs.readFileSync(0, "utf8");
-fs.writeFileSync(${JSON.stringify(path.join(dir, "call.json"))}, JSON.stringify({ args: process.argv.slice(2), input, cwd: process.cwd() }));
-process.stdout.write(${JSON.stringify(JSON.stringify(answer))});
-`);
-  fs.renameSync(fake, fake.replace(/\.mjs$/, ".cjs"));
-  const bin = path.join(dir, "claude");
-  fs.writeFileSync(bin, `#!/bin/sh\nexec node ${JSON.stringify(fake.replace(/\.mjs$/, ".cjs"))} "$@"\n`);
-  fs.chmodSync(bin, 0o755);
-  const env = {
-    ...process.env,
-    WORKBENCH_CLAUDE: bin,
-    WORKBENCH_TASK: "t",
-    WORKBENCH_TASK_DIR: task,
-    WORKBENCH_WORKTREE: wt,
-    WORKBENCH_BASE: base,
-    WORKBENCH_TREE: tree,
-    WORKBENCH_PLAN: path.join(task, "plan.md"),
-    WORKBENCH_QA: path.join(task, "qa.md"),
-    WORKBENCH_RECEIPT: path.join(task, "receipt.json"),
-    WORKBENCH_CHANGED: path.join(task, "changed"),
-    WORKBENCH_REVIEW_OUT: path.join(task, "out.json"),
-    WORKBENCH_REVIEWER: "task",
-  };
-  const call = () => JSON.parse(fs.readFileSync(path.join(dir, "call.json"), "utf8"));
-  const out = () => JSON.parse(fs.readFileSync(env.WORKBENCH_REVIEW_OUT, "utf8"));
-  return { dir, wt, env, call, out };
-}
-
-const ok = { type: "result", is_error: false, structured_output: { verdict: "fail", summary: "s", findings: [{ id: "F1", severity: "blocking", escalate: false, title: "t", detail: "d", evidence: "a.txt:1" }] } };
 
 test("the blind task reviewer sees the objective, acceptance and diff, never the steps, QA notes or review", () => {
   const s = setup(ok);
@@ -128,23 +70,12 @@ test("--add-dir lets the reviewer read named directories, and --include adds fil
   assert.match(run("--include", path.join(extra, "nope.txt")).stderr, /--include .*nope\.txt.* is not a file/);
 });
 
-const passed = { verdict: "pass", summary: "Checked.", findings: [] };
+// The legacy opt-in: a fallback model and effort in the environment.
 function fallback(s, answer = passed, status = 0) {
-  const binary = path.join(s.dir, "codex.cjs");
-  const record = path.join(s.dir, "codex-call.json");
-  fs.writeFileSync(binary, `#!/usr/bin/env node
-const fs = require("node:fs");
-const args = process.argv.slice(2);
-const input = fs.readFileSync(0, "utf8");
-fs.writeFileSync(${JSON.stringify(record)}, JSON.stringify({args, input, cwd: process.cwd(), schema: JSON.parse(fs.readFileSync(args[args.indexOf("--output-schema") + 1], "utf8"))}));
-fs.writeFileSync(args[args.indexOf("--output-last-message") + 1], ${JSON.stringify(JSON.stringify(answer))});
-process.exit(${status});
-`);
-  fs.chmodSync(binary, 0o755);
-  s.env.WORKBENCH_CODEX = binary;
+  const f = fakeCodex(s, { answer, status });
   s.env.WORKBENCH_FALLBACK_MODEL = "gpt-6.1-sol";
   s.env.WORKBENCH_FALLBACK_EFFORT = "xhigh";
-  return { called: () => fs.existsSync(record), call: () => JSON.parse(fs.readFileSync(record, "utf8")) };
+  return f;
 }
 const run = (s, ...args) => spawnSync("node", [runner, "--prompt", path.join(prompts, "task.md"), ...args], { cwd: s.wt, env: s.env, encoding: "utf8" });
 
@@ -238,23 +169,34 @@ test("a valid failing fallback remains a failing review with Codex provenance", 
   assert.equal(JSON.parse(fs.readFileSync(`${s.env.WORKBENCH_REVIEW_OUT}.runner.json`, "utf8")).backend, "codex");
 });
 
-test("codex as primary reviews every change without calling Claude, and its failure blocks", () => {
-  const s = setup(ok); const f = fallback(s);
-  s.env.WORKBENCH_REVIEW_PRIMARY = "codex";
-  const r = run(s);
+// 0.5.1 shipped --primary codex (and WORKBENCH_REVIEW_PRIMARY=codex), a Codex-only review. review.mjs replaces it;
+// the flag parser ignores unknown flags, so without the refusal an old command would quietly review on Claude.
+test("the 0.5.1 --primary codex is refused with its replacement, before any runner starts", () => {
+  for (const [args, primary] of [[["--primary", "codex", "--fallback-model", "gpt-6.1-sol"], undefined], [[], "codex"]]) {
+    const s = setup(ok); const f = fallback(s);
+    if (primary) s.env.WORKBENCH_REVIEW_PRIMARY = primary;
+    const r = run(s, ...args);
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /replaced by scripts\/review\.mjs/);
+    assert.match(r.stderr, /--fallback-runner none/);
+    assert.equal(s.called(), false);
+    assert.equal(f.called(), false);
+    assert.equal(s.wrote(), false);
+  }
+});
+
+test("--primary claude keeps the Claude-first review, and the flag never reaches claude", () => {
+  const s = setup(ok);
+  const r = run(s, "--primary", "claude", "--model", "m1");
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(fs.existsSync(path.join(s.dir, "call.json")), false);
-  const c = f.call();
-  assert.equal(c.args[c.args.indexOf("--model") + 1], "gpt-6.1-sol");
-  assert.ok(c.args.includes('model_reasoning_effort="xhigh"'));
-  assert.doesNotMatch(c.input, /my private reasoning step|SECRET-AUTHOR-NOTE/);
-  assert.match(c.input, /a changed/);
-  assert.deepEqual(s.out(), passed);
-  assert.deepEqual(JSON.parse(fs.readFileSync(`${s.env.WORKBENCH_REVIEW_OUT}.runner.json`, "utf8")), {backend: "codex", model: "gpt-6.1-sol", effort: "xhigh", primary: "codex"});
-  const broken = setup(ok); fallback(broken, passed, 1);
-  assert.notEqual(run(broken, "--primary", "codex").status, 0);
-  assert.equal(fs.existsSync(path.join(broken.dir, "call.json")), false);
-  const unnamed = setup(ok);
-  assert.match(run(unnamed, "--primary", "codex").stderr, /needs the Codex model/);
-  assert.match(run(unnamed, "--primary", "gpt").stderr, /--primary: claude or codex/);
+  const { args } = s.call();
+  assert.equal(args.includes("--primary"), false);
+  assert.equal(args[args.indexOf("--model") + 1], "m1");
+  assert.equal(s.runner().backend, "claude");
+});
+
+test("a --primary with no value fails as any unpaired flag does", () => {
+  const s = setup(ok);
+  assert.match(run(s, "--primary").stderr, /expected --flag value pairs/);
+  assert.equal(s.called(), false);
 });
