@@ -1,4 +1,8 @@
-// Isolated, read-only fallback for the shared structured reviewer contract.
+// The isolated, read-only Codex runner for the shared structured reviewer contract (review.mjs). Codex loads no
+// user config, rules, project docs, hooks, plugins, memories or skills; it reads the source roots and nothing that
+// carries the author's context: the task's evidence directory, .workbench/, .git/, personal agent directories, and
+// the uncommitted local instruction files. The repository's committed AGENTS.md and CLAUDE.md stay readable as
+// source, as they are for the Claude reviewer, and are never loaded as instructions (project_doc_max_bytes=0).
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -11,7 +15,7 @@ export function reviewConfig(cwd, dirs = [], taskDir) {
   const privateDirs = [".claude", ".codex", ".agents"];
   for (const name of privateDirs) filesystem[path.join(os.homedir(), name)] = "deny";
   for (const root of roots) {
-    for (const name of [...privateDirs, ".workbench", ".git", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "CLAUDE.local.md"]) {
+    for (const name of [...privateDirs, ".workbench", ".git", "AGENTS.override.md", "CLAUDE.local.md"]) {
       filesystem[path.join(root, name)] = "deny";
     }
   }
@@ -30,7 +34,10 @@ export function reviewConfig(cwd, dirs = [], taskDir) {
   ];
 }
 
-export function runCodexReview({ prompt, schema, model, effort, cwd, dirs, taskDir }) {
+// Runs one review and returns { r, result, errors }: the process outcome, the parsed final message when there is
+// one (undefined otherwise), and the error text Codex reported (its JSONL error events and stderr), for review.mjs
+// to tell an unavailable runner from a failed review.
+export function runCodex({ prompt, schema, model, effort, cwd, dirs, taskDir }) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "workbench-review-"));
   try {
     const schemaFile = path.join(temp, "schema.json");
@@ -41,12 +48,28 @@ export function runCodexReview({ prompt, schema, model, effort, cwd, dirs, taskD
     for (const config of [`model_reasoning_effort=${JSON.stringify(effort)}`, ...reviewConfig(cwd, dirs, taskDir)]) args.push("-c", config);
     args.push("-");
     const r = spawnSync(process.env.WORKBENCH_CODEX || "codex", args, { cwd, input: prompt, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-    if (r.error || r.signal || r.status !== 0) throw new Error(`codex fallback failed (${r.error?.code || r.signal || r.status}): ${String(r.stderr || r.stdout || r.error?.message || "no result").slice(0, 2000)}`);
     let result;
-    try { result = JSON.parse(fs.readFileSync(resultFile, "utf8")); }
-    catch { throw new Error("codex fallback returned no valid JSON verdict"); }
-    return result;
+    if (fs.existsSync(resultFile)) {
+      try { result = JSON.parse(fs.readFileSync(resultFile, "utf8")); } catch {}
+    }
+    return { r, result, errors: errorsOf(r) };
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }
+}
+
+// The messages of the JSONL error and turn.failed events, then stderr. Agent messages and tool output are left
+// out: a file the reviewer reads may say "usage limit" without Codex being limited.
+export function errorsOf(r) {
+  const messages = [];
+  for (const line of String(r.stdout || "").split("\n")) {
+    if (!line.trim().startsWith("{")) continue;
+    try {
+      const event = JSON.parse(line);
+      if (event.type === "error" && event.message) messages.push(String(event.message));
+      if (event.type === "turn.failed" && event.error?.message) messages.push(String(event.error.message));
+    } catch {}
+  }
+  if (r.stderr?.trim()) messages.push(r.stderr.trim());
+  return messages.join("\n");
 }

@@ -8,6 +8,7 @@
           "node",
           "--test",
           "tests/app-worktrees.test.mjs",
+          "tests/review.test.mjs",
           "tests/claude-review.test.mjs",
           "tests/codex.test.mjs",
           "tests/links.test.mjs",

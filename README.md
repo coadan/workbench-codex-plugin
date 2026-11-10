@@ -5,7 +5,7 @@ This plugin uses the current [Claude Workbench delivery contract](https://github
 - the same branch, `<type>/<name>`, in every repository it spans;
 - a plan whose front matter is the task's data (type, objective, scope), applied by `sync`;
 - the repository's own checks;
-- a review bound to a hash of the exact tree it approves, with optional reviewers (Claude Code sessions or any command) whose every finding must be answered before it lands.
+- a review bound to a hash of the exact tree it approves, with optional reviewers (Codex or Claude Code sessions, or any command) whose every finding must be answered before it lands.
 
 Delivery follows the repository's policy: merge locally, push to the base branch, or push a branch for a pull request. In a Codex chat, run the returned PR command and attach its URL to the chat. The plugin needs Node.js 20+ and git, and has no dependencies.
 
@@ -128,7 +128,7 @@ Task evidence lives under `<repo>/.workbench/tasks/<name>/` (`task.json`, `plan.
 
 ## Reviewers
 
-`hooks.review` lets a repository put reviewers between `check` and `land`: commands that read the task's change and return a verdict with findings. The engine stays neutral about who reviews; the plugin ships a runner for Claude Code reviewers and two generic prompts, and a repository adds its own prompts beside them.
+`hooks.review` lets a repository put reviewers between `check` and `land`: commands that read the task's change and return a verdict with findings. The engine stays neutral about who reviews; the plugin ships a runner that asks Codex first and Claude Code when Codex is unavailable, and two generic prompts, and a repository adds its own prompts beside them.
 
 ```json
 {
@@ -137,20 +137,20 @@ Task evidence lives under `<repo>/.workbench/tasks/<name>/` (`task.json`, `plan.
       {
         "name": "task",
         "inputs": ["plan"],
-        "command": ["node", "{plugin}/scripts/claude-review.mjs", "--prompt", "{plugin}/reviewers/task.md",
-                    "--model", "claude-sonnet-5-5", "--effort", "xhigh"]
+        "command": ["node", "{plugin}/scripts/review.mjs", "--prompt", "{plugin}/reviewers/task.md",
+                    "--fallback-model", "claude-sonnet-5-5", "--fallback-effort", "xhigh"]
       },
       {
         "name": "qa",
-        "command": ["node", "{plugin}/scripts/claude-review.mjs", "--prompt", "{plugin}/reviewers/qa.md",
-                    "--with", "acceptance,changed,qa,receipt", "--model", "claude-sonnet-5-5", "--effort", "xhigh"]
+        "command": ["node", "{plugin}/scripts/review.mjs", "--prompt", "{plugin}/reviewers/qa.md",
+                    "--with", "acceptance,changed,qa,receipt", "--fallback-model", "claude-sonnet-5-5", "--fallback-effort", "xhigh"]
       },
       {
         "name": "api",
         "when": ["api/**", "**/*.proto"],
         "inputs": ["plan"],
-        "command": ["node", "{plugin}/scripts/claude-review.mjs", "--prompt", ".workbench/reviewers/api.md",
-                    "--model", "claude-opus-5-5", "--effort", "xhigh"]
+        "command": ["node", "{plugin}/scripts/review.mjs", "--prompt", ".workbench/reviewers/api.md",
+                    "--fallback-model", "claude-opus-5-5", "--fallback-effort", "xhigh"]
       }
     ]
   }
@@ -188,16 +188,16 @@ A blocking finding, or one the reviewer marked `escalate`, needs `human:` with t
 
 The result is JSON: `{ "verdict": "pass" | "fail", "summary": "…", "findings": [{ "id": "F1", "severity": "blocking" | "recommendation", "escalate": false, "title": "…", "detail": "…", "evidence": "file:line" }] }`. Output and errors go to `reviews/<name>.log`, the result to `reviews/<name>.json`.
 
-**The Claude runner.** `scripts/claude-review.mjs` runs `claude -p` restricted to Read, Grep and Glob inside the worktree, with no settings files, MCP servers or saved session, and asks for that JSON by schema. `--prompt` is the reviewer's instructions (absolute, or relative to the repository root); `--model` and `--effort` pass through; `--with` picks what it is given from `acceptance` (the plan's objective and Acceptance, never its Steps), `plan`, `diff`, `changed`, `qa` and `receipt` (default `acceptance,diff`); `--max-diff` cuts a long diff (default 300000 characters); `--add-dir a,b` lets it also read those directories (name the ones it needs, never a parent of the task's evidence); `--include f,g` adds those files' content to its prompt, for context a wrapper script computed first. It never gives the author's `review.md`. The two shipped prompts:
+**The runner.** `scripts/review.mjs` asks Codex (`codex exec`) for that JSON by schema, at `gpt-6.1-sol` and `xhigh` effort unless `--model` and `--effort` say otherwise. `--prompt` is the reviewer's instructions (absolute, or relative to the repository root); `--with` picks what it is given from `acceptance` (the plan's objective and Acceptance, never its Steps), `plan`, `diff`, `changed`, `qa`, `receipt` and `pr` (default `acceptance,diff`); `--max-diff` cuts a long diff (default 300000 characters); `--add-dir a,b` lets it also read those directories (name the ones it needs, never a parent of the task's evidence); `--include f,g` adds those files' content to its prompt, for context a wrapper script computed first. It never gives the author's `review.md`. The two shipped prompts:
 
 - `reviewers/task.md`: a blind technical review of the change against its acceptance: correctness, tests, scope and safety.
 - `reviewers/qa.md`: a check that the author did QA and recorded evidence for it. It does no QA itself; each gap is a blocking finding that tells the implementer what to try and record.
 
-**Codex as primary.** `--primary codex` (or `WORKBENCH_REVIEW_PRIMARY=codex`) runs every review on Codex, with the model and effort the fallback settings below name and the same blind input and schema; Claude is never called, and a Codex failure blocks delivery. The provenance records `primary: codex`.
+**Fallback.** When Codex is unavailable, Claude Code reviews instead: after a recognized usage-limit, authentication, service or missing-executable failure, the runner asks `claude -p` with the same prompt and schema. `--fallback-model` and `--fallback-effort` set Claude's model and effort (Claude's own defaults otherwise); `--fallback-runner none` turns the fallback off, for a Codex-only review. A valid failing verdict, a malformed response, an interruption or any other error never falls back, and the fallback must complete and satisfy the same schema; an error blocks delivery. `--runner claude` puts Claude first, with Codex at `gpt-6.1-sol` `xhigh` as its fallback. `WORKBENCH_CODEX` and `WORKBENCH_CLAUDE` select the executables.
 
-**Optional fallback.** Claude is the primary reviewer by default. Set `WORKBENCH_FALLBACK_MODEL` and `WORKBENCH_FALLBACK_EFFORT` (or `--fallback-model` and `--fallback-effort`) to permit a Codex review after a recognized usage-limit, authentication, service or executable-availability failure. For example, `WORKBENCH_FALLBACK_MODEL=gpt-6.1-sol WORKBENCH_FALLBACK_EFFORT=xhigh`. Valid failing verdicts, malformed responses, interruptions and unrelated errors never trigger fallback. The fallback must complete and satisfy the same schema; an error blocks delivery. `WORKBENCH_CODEX` optionally selects the executable.
+Both runners receive the same blind input and read the same sources. Codex ignores user config and rules, loads no project docs, disables hooks, plugins, memory, skills instructions and web access, and uses a named read-only profile restricted to source roots plus minimal runtime paths. The author's task directory, `.workbench/`, `.git/`, the local instruction files (`CLAUDE.local.md`, `AGENTS.override.md`) and personal context paths are denied; the repository's committed `AGENTS.md` and `CLAUDE.md` stay readable as source, as they are for Claude. Generic global AGENTS guidance can still appear in Codex startup context; the review prompt overrides its bootstrap instructions and the filesystem prevents reading that extra context. Managed policies remain in force. Explicit `--add-dir` inputs become read-only source roots, never writable roots. Claude runs `claude -p` restricted to Read, Grep and Glob inside the worktree and the `--add-dir` directories, with no settings files, MCP servers or saved session. The runner writes provenance to `WORKBENCH_REVIEW_OUT.runner.json` beside the unchanged structured result: `{ "backend": "codex" | "claude", "model", "effort" }`, plus `fallbackReason` when the fallback reviewed.
 
-Both runners receive the same blind input. Codex ignores user config and rules, disables hooks, plugins, memory, skills instructions and web access, and uses a named read-only profile restricted to source roots plus minimal runtime paths. The author's task directory and personal context paths are denied. Generic global AGENTS guidance can still appear in Codex startup context; the review prompt overrides its bootstrap instructions and the filesystem prevents reading that extra context. Managed policies remain in force. Explicit `--add-dir` inputs become read-only source roots, never writable roots. The runner writes provenance to `WORKBENCH_REVIEW_OUT.runner.json` beside the unchanged structured result, recording backend, model, effort and any fallback reason.
+`scripts/claude-review.mjs` is the same runner with Claude first, for reviewers configured before `review.mjs`: Codex reviews only when a fallback model is named (`--fallback-model`, or `WORKBENCH_FALLBACK_MODEL` and `WORKBENCH_FALLBACK_EFFORT`) and Claude is unavailable. Its 0.5.1 `--primary codex` (and `WORKBENCH_REVIEW_PRIMARY=codex`) is refused with the replacement: `review.mjs`, with `--fallback-runner none` for the same Codex-only review.
 
 A repository's own reviewers (its architecture rules, its cross-repository coverage) keep their prompts in the repository, or in `.workbench/` with a `.git/workbench.json` policy to keep them out of history.
 

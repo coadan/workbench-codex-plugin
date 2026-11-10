@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { reviewConfig } from "../scripts/codex-review.mjs";
 
-test("fallback grants read access to sources and denies task evidence and personal context", () => {
+test("the Codex profile reads sources and committed rules, and denies task evidence and personal context", () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wb-isolation-")));
   const tree = path.join(root, "tree"); const task = path.join(root, "task");
   fs.mkdirSync(tree); fs.mkdirSync(task);
@@ -16,6 +16,9 @@ test("fallback grants read access to sources and denies task evidence and person
     assert.ok(fsConfig.includes(`${JSON.stringify(tree)}="read"`));
     assert.ok(fsConfig.includes(`${JSON.stringify(task)}="deny"`));
     for (const name of [".claude", ".codex", ".agents"]) assert.ok(fsConfig.includes(`${JSON.stringify(path.join(os.homedir(), name))}="deny"`));
+    for (const name of [".workbench", ".git", "CLAUDE.local.md", "AGENTS.override.md"]) assert.ok(fsConfig.includes(`${JSON.stringify(path.join(tree, name))}="deny"`), name);
+    // the repository's committed rules are source the reviewer may read, as the Claude reviewer can
+    for (const name of ["AGENTS.md", "CLAUDE.md"]) assert.ok(!fsConfig.includes(JSON.stringify(path.join(tree, name))), name);
     assert.doesNotMatch(fsConfig, /="write"/);
     assert.ok(config.includes('permissions.workbench-review.network.enabled=false'));
     assert.ok(config.includes('allow_login_shell=false'));

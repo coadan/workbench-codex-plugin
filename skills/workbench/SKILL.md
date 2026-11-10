@@ -87,4 +87,4 @@ At session start, resume and compaction, and at subagent start, the plugin print
 
 ## Reviewer availability
 
-Claude reviews stay primary. A repository can opt into the [runner fallback](../../README.md#reviewers) with `WORKBENCH_FALLBACK_MODEL` and `WORKBENCH_FALLBACK_EFFORT`. A valid failed review is a finding to resolve; fallback handles recognized runner unavailability only. Keep the same role, permitted evidence and schema, inspect the `.runner.json` provenance beside each result, and rerun the affected gate after fixing findings.
+Codex reviews first: the plugin's [runner](../../README.md#reviewers) (`scripts/review.mjs`) asks Codex at `gpt-6.1-sol` `xhigh`, and Claude Code (`--fallback-model`, `--fallback-effort`) when Codex is unavailable or usage-blocked. A valid failed review is a finding to resolve; fallback handles recognized runner unavailability only. Both runners keep the same role, permitted evidence and schema. Read the `.runner.json` beside each result for who reviewed (`backend`, `model`, `effort`, and `fallbackReason` after a fallback), and rerun the affected gate after fixing findings.
