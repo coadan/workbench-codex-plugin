@@ -5,7 +5,10 @@
 //   node {plugin}/scripts/claude-review.mjs --prompt <file> [--model <id>] [--effort <level>]
 //        [--with acceptance,diff,changed,qa,receipt,plan,pr] [--max-diff <chars>]
 //        [--add-dir <dir>[,<dir>…]] [--include <file>[,<file>…]]
-//        [--fallback-model <id>] [--fallback-effort <level>]
+//        [--fallback-model <id>] [--fallback-effort <level>] [--primary claude|codex]
+//
+//   --primary  which runner reviews (default claude, or WORKBENCH_REVIEW_PRIMARY): codex runs the Codex model
+//              and effort the fallback flags name on every review, with no Claude call and no fallback
 //
 //   --prompt   the reviewer's instructions: an absolute path, or one relative to the repository root
 //              (WORKBENCH_ROOT), for example a prompt kept in .workbench/ that is never committed
@@ -179,6 +182,20 @@ function main() {
   if (flags.effort) args.push("--effort", flags.effort);
   for (const d of dirs) args.push("--add-dir", d);
   const prompt = parts.join("\n\n");
+  const primary = flags.primary || process.env.WORKBENCH_REVIEW_PRIMARY || "claude";
+  if (!["claude", "codex"].includes(primary)) die("--primary: claude or codex");
+  if (primary === "codex") {
+    // Codex reviews first, on the same blind prompt and schema; its failure blocks delivery (no Claude fallback).
+    if (!fallbackModel) die("--primary codex needs the Codex model: --fallback-model or WORKBENCH_FALLBACK_MODEL");
+    let result;
+    try {
+      result = validateVerdict(runCodexReview({ prompt, schema: SCHEMA, model: fallbackModel, effort: fallbackEffort, cwd: env("WORKBENCH_WORKTREE"), dirs, taskDir: process.env.WORKBENCH_TASK_DIR }));
+    } catch (error) { die(error.message); }
+    fs.writeFileSync(outFile, JSON.stringify(result, null, 2) + "\n");
+    fs.writeFileSync(`${outFile}.runner.json`, JSON.stringify({ backend: "codex", model: fallbackModel, effort: fallbackEffort, primary: "codex" }, null, 2) + "\n");
+    console.log(`${result.verdict}: ${result.findings.length} finding(s) via codex`);
+    return;
+  }
   const r = spawnSync(process.env.WORKBENCH_CLAUDE || "claude", args, { cwd: env("WORKBENCH_WORKTREE"), input: prompt, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   let res;
   if (r.stdout?.trim()) {

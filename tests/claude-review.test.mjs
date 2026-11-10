@@ -237,3 +237,24 @@ test("a valid failing fallback remains a failing review with Codex provenance", 
   assert.equal(s.out().verdict, "fail");
   assert.equal(JSON.parse(fs.readFileSync(`${s.env.WORKBENCH_REVIEW_OUT}.runner.json`, "utf8")).backend, "codex");
 });
+
+test("codex as primary reviews every change without calling Claude, and its failure blocks", () => {
+  const s = setup(ok); const f = fallback(s);
+  s.env.WORKBENCH_REVIEW_PRIMARY = "codex";
+  const r = run(s);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(fs.existsSync(path.join(s.dir, "call.json")), false);
+  const c = f.call();
+  assert.equal(c.args[c.args.indexOf("--model") + 1], "gpt-6.1-sol");
+  assert.ok(c.args.includes('model_reasoning_effort="xhigh"'));
+  assert.doesNotMatch(c.input, /my private reasoning step|SECRET-AUTHOR-NOTE/);
+  assert.match(c.input, /a changed/);
+  assert.deepEqual(s.out(), passed);
+  assert.deepEqual(JSON.parse(fs.readFileSync(`${s.env.WORKBENCH_REVIEW_OUT}.runner.json`, "utf8")), {backend: "codex", model: "gpt-6.1-sol", effort: "xhigh", primary: "codex"});
+  const broken = setup(ok); fallback(broken, passed, 1);
+  assert.notEqual(run(broken, "--primary", "codex").status, 0);
+  assert.equal(fs.existsSync(path.join(broken.dir, "call.json")), false);
+  const unnamed = setup(ok);
+  assert.match(run(unnamed, "--primary", "codex").stderr, /needs the Codex model/);
+  assert.match(run(unnamed, "--primary", "gpt").stderr, /--primary: claude or codex/);
+});
